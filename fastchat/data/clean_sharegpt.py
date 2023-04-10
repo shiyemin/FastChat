@@ -4,6 +4,8 @@ Convert html to markdown with basic data cleaning.
 Usage:
 python3 -m fastchat.data.clean_sharegpt --in sharegpt_html.json --out sharegpt_clean.json
 """
+import os
+
 import argparse
 import json
 import logging
@@ -70,7 +72,7 @@ def should_skip(val: str) -> bool:
     return False
 
 
-def clean_html_source(content, begin, end, check_tag, check_num):
+def clean_html_source(in_dir, check_tag, check_num):
     """
     clean the input json content.
     Args:
@@ -83,11 +85,23 @@ def clean_html_source(content, begin, end, check_tag, check_num):
     skip_cnt = 0
     tag_cnt = 0
 
-    content = content[begin:end]
     new_content = []
 
-    for sample in tqdm.tqdm(content):
-        skipped = False
+    all_files = os.listdir(in_dir)
+    for sample_file in tqdm.tqdm(all_files):
+        if not sample_file.endswith(".json"):
+            continue
+        with open(os.path.join(in_dir, sample_file), "r") as fp:
+            try:
+                sample = json.load(fp)
+                sample = {
+                          "id": sample["pageProps"]["id"],
+                          "conversations": sample["pageProps"]["content"]["items"]
+                         }
+                skipped = False
+            except:
+                sample = {"conversations": []}
+                skipped = True
 
         if len(sample["conversations"]) <= 1:
             # The conversation is too short
@@ -100,7 +114,7 @@ def clean_html_source(content, begin, end, check_tag, check_num):
 
                 try:
                     new_val = html_to_markdown(c["value"])
-                except (bs4.builder.ParserRejectedMarkup, AssertionError):
+                except (bs4.builder.ParserRejectedMarkup, AssertionError, TypeError):
                     skipped = True
                     break
 
@@ -120,24 +134,20 @@ def clean_html_source(content, begin, end, check_tag, check_num):
         else:
             skip_cnt += 1
 
-    print(f"total: {len(content)}, skip: {skip_cnt}, new: {len(new_content)}")
+    print(f"total: {len(all_files)}, skip: {skip_cnt}, new: {len(new_content)}")
     return new_content
 
 
 def main(args):
-    content = json.load(open(args['in_file'], "r"))
     content = clean_html_source(
-        content, args['begin'], args['end'],
-        args['check_tag'], args['check_num'])
+        args['in_dir'], args['check_tag'], args['check_num'])
     json.dump(content, open(args['out_file'], "w"), indent=2)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--in-file", type=str, required=True)
+    parser.add_argument("--in-dir", type=str, required=True)
     parser.add_argument("--out-file", type=str, default="sharegpt_clean.json")
-    parser.add_argument("--begin", type=int)
-    parser.add_argument("--end", type=int)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--check-tag", type=str)
     parser.add_argument("--check-num", type=int, default=1)

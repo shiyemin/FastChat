@@ -1,3 +1,6 @@
+checkpoints
+.nfs*
+
 # Python
 __pycache__
 *.pyc

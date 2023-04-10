@@ -62,19 +62,6 @@ class TrainingArguments(transformers.TrainingArguments):
     )
 
 
-def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
-                                   output_dir: str):
-    """Collects the state dict and dump to disk."""
-    state_dict = trainer.model.state_dict()
-    if trainer.args.should_save:
-        cpu_state_dict = {
-            key: value.cpu()
-            for key, value in state_dict.items()
-        }
-        del state_dict
-        trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
-
-
 def smart_tokenizer_and_embedding_resize(
     special_tokens_dict: Dict,
     tokenizer: transformers.PreTrainedTokenizer,
@@ -290,6 +277,27 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                 eval_dataset=None,
                 data_collator=data_collator)
 
+class CustomTriner(Trainer):
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
+        if self.fsdp is not None:
+            if output_dir is None:
+                output_dir = self.args.output_dir
+            from torch.distributed.fsdp import (
+                FullyShardedDataParallel as FSDP,
+                FullStateDictConfig,
+                StateDictType,
+            )
+            save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, save_policy):
+                cpu_state_dict = self.model.state_dict()
+            if self.args.should_save:
+                self._save(output_dir, state_dict=cpu_state_dict)  # noqa
+            # Push to the Hub when `save_model` is called by the user.
+            if self.args.push_to_hub and not _internal_call:
+                self.push_to_hub(commit_message="Model save")
+        else:
+            super().save_model(output_dir, _internal_call)
+
 
 def train():
     parser = transformers.HfArgumentParser(
@@ -322,18 +330,20 @@ def train():
 
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
-    trainer = Trainer(model=model,
+    trainer = CustomTriner(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
                     **data_module)
 
+    if training_args.deepspeed or training_args.gradient_checkpointing:
+        model.config.use_cache = False
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
     else:
         trainer.train()
     trainer.save_state()
-    safe_save_model_for_hf_trainer(trainer=trainer,
-                                   output_dir=training_args.output_dir)
+    print("Ready to save model")
+    trainer.save_model(training_args.output_dir)
 
 
 if __name__ == "__main__":
