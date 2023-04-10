@@ -41,6 +41,11 @@ git clone https://github.com/lm-sys/FastChat.git
 cd FastChat
 ```
 
+If you are running on Mac:
+```bash
+brew install rust cmake
+```
+
 2. Install Package
 ```bash
 pip3 install --upgrade pip  # enable PEP 660 support
@@ -52,7 +57,7 @@ We release [Vicuna](https://vicuna.lmsys.org/) weights as delta weights to compl
 You can add our delta to the original LLaMA weights to obtain the Vicuna weights. Instructions:
 
 1. Get the original LLaMA weights in the huggingface format by following the instructions [here](https://huggingface.co/docs/transformers/main/model_doc/llama).
-2. Use the following scripts to get Vicuna weights by applying our delta. They will automatically download delta weights from our Hugging Face account.
+2. Use the following scripts to get Vicuna weights by applying our delta. They will automatically download delta weights from our Hugging Face [account](https://huggingface.co/lmsys).
 
 **NOTE**:
 Our released weights are only compatible with the latest main branch of huggingface/transformers.
@@ -60,6 +65,7 @@ We install the correct version of transformers when fastchat is installed.
 
 ### Vicuna-13B
 This conversion command needs around 60 GB of CPU RAM.
+If you do not have enough memory, you can create a large swap file that allows the operating system to automatically utilize the disk as virtual memory.
 ```bash
 python3 -m fastchat.model.apply_delta \
     --base /path/to/llama-13b \
@@ -69,6 +75,7 @@ python3 -m fastchat.model.apply_delta \
 
 ### Vicuna-7B
 This conversion command needs around 30 GB of CPU RAM.
+If you do not have enough memory, you can create a large swap file that allows the operating system to automatically utilize the disk as virtual memory.
 ```bash
 python3 -m fastchat.model.apply_delta \
     --base /path/to/llama-7b \
@@ -78,34 +85,40 @@ python3 -m fastchat.model.apply_delta \
 
 ## Inference with Command Line Interface
 
-### Single GPU
+(Experimental Feature: You can specify `--style rich` to enable rich text output. This may not work on certain terminals.)
+
+#### Single GPU
 The command below requires around 28GB of GPU memory for Vicuna-13B and 14GB of GPU memory for Vicuna-7B.
+See the "No Enough Memory" section below if you do not have enough memory.
 ```
 python3 -m fastchat.serve.cli --model-name /path/to/vicuna/weights
 ```
 
-### Multiple GPUs
+#### Multiple GPUs
 If you do not have enough GPU memory, you can use model parallelism to aggregate memory from multiple GPUs on the same machine.
 ```
 python3 -m fastchat.serve.cli --model-name /path/to/vicuna/weights --num-gpus 2
 ```
 
-### CPU Only
+#### CPU Only
 This runs on the CPU only and does not require GPU. It requires around 60GB of CPU memory for Vicuna-13B and around 30GB of CPU memory for Vicuna-7B.
 ```
 python3 -m fastchat.serve.cli --model-name /path/to/vicuna/weights --device cpu
 ```
 
-### Metal Backend (Mac computers with Apple silicon or AMD GPUs)
-Use `--device mps` to enable GPU acceleration on Mac computers and use `--load-8bit` to turn on 8-bit compression.
+#### Metal Backend (Mac Computers with Apple Silicon or AMD GPUs)
+Use `--device mps` to enable GPU acceleration on Mac computers (requires torch >= 2.0).
+Use `--load-8bit` to turn on 8-bit compression.
 ```
 python3 -m fastchat.serve.cli --model-name /path/to/vicuna/weights --device mps --load-8bit
 ```
+Vicuna-7B can run on a 32GB M1 Macbook with 1 - 2 words / second.
 
-### Others (Quantization, Low-end Devices, and More Platforms)
+#### No Enough Memory or Other Platforms
 If you do not have enough memory, you can enable 8-bit compression by adding `--load-8bit` to commands above.
-It works with CPU, GPU, and Metal.
-This can reduce the memory usage by around half with slightly degraded model quality.
+This can reduce memory usage by around half with slightly degraded model quality.
+It is compatible with the CPU, GPU, and Metal backend.
+Vicuna-13B with 8-bit compression can run on a single NVIDIA 3090/4080/V100(16GB) GPU.
 
 ```
 python3 -m fastchat.serve.cli --model-name /path/to/vicuna/weights --load-8bit
@@ -116,16 +129,16 @@ Contributions and pull requests are welcome.
 
 ## Serving with Web GUI
 
-To serve using the WebUI, you need three main components: web servers that interface with users, model workers that host one or more models, and a controller to coordinate the webserver and model workers. Here are the commands to follow in your terminal:
+To serve using the web UI, you need three main components: web servers that interface with users, model workers that host one or more models, and a controller to coordinate the webserver and model workers. Here are the commands to follow in your terminal:
 
-**Launch the controller**
+#### Launch the controller
 ```bash
 python3 -m fastchat.serve.controller
 ```
 
 This controller manages the distributed workers.
 
-**Launch the model worker**
+#### Launch the model worker
 ```bash
 python3 -m fastchat.serve.model_worker --model-path /path/to/vicuna/weights
 ```
@@ -136,29 +149,37 @@ To ensure that your model worker is connected to your controller properly, send 
 python3 -m fastchat.serve.test_message --model-name vicuna-13b
 ```
 
-**Launch the Gradio web server**
+#### Launch the Gradio web server
 ```bash
 python3 -m fastchat.serve.gradio_web_server
 ```
 
 This is the user interface that users will interact with.
 
-By following these steps, you will be able to serve your models using the WebUI. You can open your browser and chat with a model now.
+By following these steps, you will be able to serve your models using the web UI. You can open your browser and chat with a model now.
 
 
 ## Evaluation
 
-Our AI-enhanced [evaluation](fastchat/eval) pipeline is based on GPT-4. Here are some high-level instructions for using the pipeline:
+Our AI-enhanced evaluation pipeline is based on GPT-4. This section provides a high-level summary of the pipeline. For detailed instructions, please refer to the [evaluation](fastchat/eval) documentation.
 
-First, generate answers from different models. Use `qa_baseline_gpt35.py` for ChatGPT, or specify the model checkpoint and run `model_qa.py` for Vicuna and other models.
+### Pipeline Steps
 
-Then, use GPT-4 to generate reviews automatically, which can be done manually if the GPT-4 API is not available to you. Once you have your evaluation data, visualize the results by running `generate_webpage_data_from_table.py`, which generates data for a static website.
+1. Generate answers from different models: Use `qa_baseline_gpt35.py` for ChatGPT, or specify the model checkpoint and run `get_model_answer.py` for Vicuna and other models.
 
-Finally, serve a static website under the `webpage` directory. You can simply use `python3 -m http.server` to serve the website locally.
+2. Generate reviews with GPT-4: Use GPT-4 to generate reviews automatically. This step can also be performed manually if the GPT-4 API is not available to you.
 
-Besides the evaluation workflow, we also document the data format used for evaluation, which is encoded with JSON Lines and includes information on models, prompts, reviewers, questions, answers, and reviews. You can customize the evaluation process or contribute to our project by accessing relevant [data](fastchat/eval/table/).
+3. Generate visualization data: Run `generate_webpage_data_from_table.py` to generate data for a static website, which allows you to visualize the evaluation data.
 
-Check [evaluation](fastchat/eval) for detailed instructions.
+4. Visualize the data: Serve a static website under the `webpage` directory. You can use `python3 -m http.server` to serve the website locally.
+
+### Data Format and Contribution
+
+We use a data format encoded with JSON Lines for evaluation. The format includes information on models, prompts, reviewers, questions, answers, and reviews.
+
+You can customize the evaluation process or contribute to our project by accessing the relevant [data](fastchat/eval/table/).
+
+For detailed instructions, please refer to the [evaluation](fastchat/eval) documentation.
 
 ## Fine-tuning
 ### Data
